@@ -9,7 +9,7 @@ import redis.clients.jedis.Jedis;
 public class JedisDemo {
 
 	public static void main(String[] args) {
-		try (Jedis jedis = new Jedis("192.168.191.136", 6379)) {
+		try (Jedis jedis = new Jedis("192.168.191.138", 6379)) {
 			jedis.auth("password");
 			System.out.println(jedis.ping());
 

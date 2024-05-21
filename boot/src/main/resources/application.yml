@@ -1,7 +1,7 @@
 spring:
   data:
     redis:
-      host: 192.168.191.136
+      host: 192.168.191.138
       port: 6379
       database: 0
       password: password
@@ -9,6 +9,6 @@ spring:
       lettuce:
         pool:
           max-active: 200 #最大連接數
-          max-wait: 10000 #最大阻塞等待時間(ms，負數為沒有限制)
+          max-wait: 100000 #最大阻塞等待時間(ms，負數為沒有限制)
           max-idle: 32 #最大空閒連接
           min-idle: 0 #最小空閒連接
