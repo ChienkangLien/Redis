@@ -1,12 +1,13 @@
 package com.tutorial.service;
 
+import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.SessionCallback;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -14,6 +15,47 @@ public class SecKillService {
 
 	@Autowired
 	RedisTemplate<String, String> redisTemplate;
+
+	static final String SCRIPT = "local userId=KEYS[1];"
+			+ "local prodId=KEYS[2];"
+			+ "local qtKey=\"sk:\"..prodId..\":qt\";"
+			+ "local userKey=\"sk:\"..prodId..\":usr\";"
+			+ "local userExists=redis.call(\"sismember\",userKey,userId);"
+			+ "if tonumber(userExists)==1 then"
+			+ "  return 2;"
+			+ "end;"
+			+ "local num=redis.call(\"get\",qtKey);"
+			+ "if tonumber(num)<=0 then"
+			+ "  return 0;"
+			+ "else"
+			+ "  redis.call(\"decr\",qtKey);"
+			+ "  redis.call(\"sadd\",userKey,userId);"
+			+ "end;"
+			+ "return 1;";
+
+	public boolean doSecKillByLua(String userId, String prodId) {
+		// 創建RedisScript對象
+		DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
+		redisScript.setScriptText(SCRIPT);
+		redisScript.setResultType(Long.class);
+
+		// 執行Lua腳本
+		Long result = redisTemplate.execute(redisScript, Arrays.asList(userId, prodId));
+
+		String reString = String.valueOf(result);
+		if ("0".equals(reString)) {
+			System.out.println("已搶空");
+		} else if ("1".equals(reString)) {
+			System.out.println("搶購成功");
+			return true;
+		} else if ("2".equals(reString)) {
+			System.out.println("該用戶已搶過");
+		} else {
+			System.out.println("搶購異常");
+		}
+		
+		return false;
+	}
 
 	/*
 	 * 秒殺過程，高併發安全

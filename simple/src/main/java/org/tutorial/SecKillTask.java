@@ -23,7 +23,10 @@ public class SecKillTask implements Runnable {
 		// userId隨機給定、prodId則固定
 		String prodId = "prod01";
 		String userId = new Random().nextInt(50000) + "";
-		doSecKill(userId, prodId);
+//		doSecKill(userId, prodId);
+		
+		// ### 通過lua腳本，解決樂觀鎖更新衝突問題(庫存遺留)
+		doSecKillByLua(userId, prodId);
 	}
 
 	public static boolean doSecKill(String userId, String prodId) {
@@ -94,6 +97,47 @@ public class SecKillTask implements Runnable {
 		jedis.close();
 		return true;
 	}
+
+	public static boolean doSecKillByLua(String userId, String prodId) {
+		JedisPool jedisPool = JedisPoolUtil.getJedisPool();
+		Jedis jedis = jedisPool.getResource();
+
+		String sha = jedis.scriptLoad(SCRIPT);
+		Object result =  jedis.evalsha(sha, 2, userId, prodId);
+
+		String reString = String.valueOf(result);
+		if ("0".equals(reString)) {
+			System.out.println("已搶空");
+		} else if ("1".equals(reString)) {
+			System.out.println("搶購成功");
+			jedis.close();
+			return true;
+		} else if ("2".equals(reString)) {
+			System.out.println("該用戶已搶過");
+		} else {
+			System.out.println("搶購異常");
+		}
+		
+		jedis.close();
+		return false;
+	}
+
+	static final String SCRIPT = "local userId=KEYS[1];"
+			+ "local prodId=KEYS[2];"
+			+ "local qtKey=\"sk:\"..prodId..\":qt\";"
+			+ "local userKey=\"sk:\"..prodId..\":usr\";"
+			+ "local userExists=redis.call(\"sismember\",userKey,userId);"
+			+ "if tonumber(userExists)==1 then"
+			+ "  return 2;"
+			+ "end;"
+			+ "local num=redis.call(\"get\",qtKey);"
+			+ "if tonumber(num)<=0 then"
+			+ "  return 0;"
+			+ "else"
+			+ "  redis.call(\"decr\",qtKey);"
+			+ "  redis.call(\"sadd\",userKey,userId);"
+			+ "end;"
+			+ "return 1;";
 
 }
 
