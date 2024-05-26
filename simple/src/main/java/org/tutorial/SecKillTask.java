@@ -1,12 +1,15 @@
 package org.tutorial;
 
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.JedisSentinelPool;
 import redis.clients.jedis.Transaction;
 
 public class SecKillTask implements Runnable {
@@ -99,7 +102,11 @@ public class SecKillTask implements Runnable {
 	}
 
 	public static boolean doSecKillByLua(String userId, String prodId) {
-		JedisPool jedisPool = JedisPoolUtil.getJedisPool();
+//		JedisPool jedisPool = JedisPoolUtil.getJedisPool();
+
+		// 若有啟用redis-sentinel
+		JedisSentinelPool jedisPool = JedisPoolUtil.getJedisSentinelPool();
+		
 		Jedis jedis = jedisPool.getResource();
 
 		String sha = jedis.scriptLoad(SCRIPT);
@@ -166,7 +173,40 @@ class JedisPoolUtil {
 	// 釋放jedis連接
 	public static void release(JedisPool jedisPool, Jedis jedis) {
 		if (jedis != null) {
-//            jedisPool.returnResource(jedis);
+//			jedisPool.returnResource(jedis);
+			jedis.close();
+		}
+	}
+	
+	// 若有啟用redis-sentinel
+	private static JedisSentinelPool jedisSentinelPool;
+	
+	// 通過單例模式來定義jedisSentinelPool連接池
+	public static JedisSentinelPool getJedisSentinelPool() {
+		if (jedisSentinelPool == null) {
+			synchronized (JedisSentinelPool.class) {
+				if (jedisSentinelPool == null) {
+					JedisPoolConfig poolConfig = new JedisPoolConfig();
+					poolConfig.setMaxTotal(200);
+					poolConfig.setMaxIdle(32);
+					poolConfig.setMaxWait(Duration.ofSeconds(100));
+					poolConfig.setBlockWhenExhausted(true);
+					poolConfig.setTestOnBorrow(true);
+					// 指定連接池的poolConfig，redisSentinel的IP地址，端口號。
+					Set<String> sentinels = new HashSet<>();
+				    sentinels.add("192.168.191.138:26379"); // Sentinel節點
+				    String masterName = "mymaster"; // sentinel.conf中的主節點名稱
+				    jedisSentinelPool = new JedisSentinelPool(masterName, sentinels, poolConfig, "password");
+				}
+			}
+		}
+		return jedisSentinelPool;
+	}
+	
+	// 釋放jedis連接
+	public static void release(JedisSentinelPool jedisSentinelPool, Jedis jedis) {
+		if (jedis != null) {
+//			jedisSentinelPool.returnResource(jedis);
 			jedis.close();
 		}
 	}

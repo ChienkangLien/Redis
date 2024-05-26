@@ -1,8 +1,13 @@
 spring:
   data:
     redis:
-      host: 192.168.191.138
-      port: 6379
+#      host: 192.168.191.138
+#      port: 6379
+      #若有啟用redis-sentinel
+      sentinel:
+        master: mymaster
+        nodes:
+        - 192.168.191.138:26379
       database: 0
       password: password
       timeout: 60000 #連接超時時間(ms)
