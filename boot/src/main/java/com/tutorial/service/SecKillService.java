@@ -1,6 +1,7 @@
 package com.tutorial.service;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +16,50 @@ public class SecKillService {
 
 	@Autowired
 	RedisTemplate<String, String> redisTemplate;
+	
+	static final String CLUSTERSCRIPT = "local userId=ARGV[1];"
+			+ "local prodId=ARGV[2];"
+			+ "local qtKey=\"sk:\"..prodId..\":qt{sk}\";"
+			+ "local userKey=\"sk:\"..prodId..\":usr{sk}\";"
+			+ "local userExists=redis.call(\"sismember\",userKey,userId);"
+			+ "if tonumber(userExists)==1 then"
+			+ "  return 2;"
+			+ "end;"
+			+ "local num=redis.call(\"get\",qtKey);"
+			+ "if tonumber(num)<=0 then"
+			+ "  return 0;"
+			+ "else"
+			+ "  redis.call(\"decr\",qtKey);"
+			+ "  redis.call(\"sadd\",userKey,userId);"
+			+ "end;"
+			+ "return 1;";
 
+	// 若有啟用cluster
+	public boolean doSecKillByLuaAndCluster(String userId, String prodId) {
+	    // 創建RedisScript對象
+	 	DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
+	 	redisScript.setScriptText(CLUSTERSCRIPT);
+	 	redisScript.setResultType(Long.class);
+
+	 	// 執行Lua腳本
+	 	List<String> keys = Collections.singletonList("{sk}");
+	 	Long result = redisTemplate.execute(redisScript, keys, userId, prodId);
+
+	 	String reString = String.valueOf(result);
+	 	if ("0".equals(reString)) {
+	 		System.out.println("已搶空");
+	 	} else if ("1".equals(reString)) {
+	 		System.out.println("搶購成功");
+	 		return true;
+	 	} else if ("2".equals(reString)) {
+	 		System.out.println("該用戶已搶過");
+	 	} else {
+	 		System.out.println("搶購異常");
+	 	}
+	 		
+	 	return false;
+	}
+	
 	static final String SCRIPT = "local userId=KEYS[1];"
 			+ "local prodId=KEYS[2];"
 			+ "local qtKey=\"sk:\"..prodId..\":qt\";"

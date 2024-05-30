@@ -1,12 +1,16 @@
 package org.tutorial;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
+import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisCluster;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 import redis.clients.jedis.JedisSentinelPool;
@@ -29,7 +33,13 @@ public class SecKillTask implements Runnable {
 //		doSecKill(userId, prodId);
 		
 		// ### 通過lua腳本，解決樂觀鎖更新衝突問題(庫存遺留)
-		doSecKillByLua(userId, prodId);
+//		doSecKillByLua(userId, prodId);
+		
+		// 若有啟用cluster
+		// !!!注意!!! JedisCluster 無法支援高併發
+		// 實測當併發數超過100出現錯誤No reachable node in cluster
+		// spring data redis默認使用lettuce則沒問題
+		doSecKillByLuaAndCluster(userId, prodId);
 	}
 
 	public static boolean doSecKill(String userId, String prodId) {
@@ -97,7 +107,7 @@ public class SecKillTask implements Runnable {
 		}
 
 		System.out.println("秒殺成功");
-		jedis.close();
+		JedisPoolUtil.release(jedisPool, jedis);
 		return true;
 	}
 
@@ -125,7 +135,7 @@ public class SecKillTask implements Runnable {
 			System.out.println("搶購異常");
 		}
 		
-		jedis.close();
+		JedisPoolUtil.release(jedisPool, jedis);
 		return false;
 	}
 
@@ -145,7 +155,51 @@ public class SecKillTask implements Runnable {
 			+ "  redis.call(\"sadd\",userKey,userId);"
 			+ "end;"
 			+ "return 1;";
+	
+	static final String CLUSTERSCRIPT = "local userId=ARGV[1];"
+			+ "local prodId=ARGV[2];"
+			+ "local qtKey=\"sk:\"..prodId..\":qt{sk}\";"
+			+ "local userKey=\"sk:\"..prodId..\":usr{sk}\";"
+			+ "local userExists=redis.call(\"sismember\",userKey,userId);"
+			+ "if tonumber(userExists)==1 then"
+			+ "  return 2;"
+			+ "end;"
+			+ "local num=redis.call(\"get\",qtKey);"
+			+ "if tonumber(num)<=0 then"
+			+ "  return 0;"
+			+ "else"
+			+ "  redis.call(\"decr\",qtKey);"
+			+ "  redis.call(\"sadd\",userKey,userId);"
+			+ "end;"
+			+ "return 1;";
 
+	// 若有啟用cluster
+	public static boolean doSecKillByLuaAndCluster(String userId, String prodId) {
+		JedisCluster jedis = JedisPoolUtil.getJedisCluster();
+		String sha = jedis.scriptLoad(CLUSTERSCRIPT, "{sk}");
+		Object result = jedis.evalsha(sha, Arrays.asList("{sk}"), Arrays.asList(userId, prodId));
+
+		try {
+			String reString = String.valueOf(result);
+			if ("0".equals(reString)) {
+				System.out.println("已搶空");
+			} else if ("1".equals(reString)) {
+				System.out.println("搶購成功");
+					jedis.close();
+					return true;
+			} else if ("2".equals(reString)) {
+				System.out.println("該用戶已搶過");
+			} else {
+				System.out.println("搶購異常");
+			}
+		
+			jedis.close();
+		} catch (IOException e) {
+			System.out.println("搶購異常");
+			e.printStackTrace();
+		}
+		return false;
+	}
 }
 
 class JedisPoolUtil {
@@ -209,5 +263,28 @@ class JedisPoolUtil {
 //			jedisSentinelPool.returnResource(jedis);
 			jedis.close();
 		}
+	}
+	
+	// 若有啟用cluster
+	private static JedisCluster jedisCluster;
+		
+	// 通過單例模式來定義jedisSentinelPool連接池
+	public static JedisCluster getJedisCluster() {
+		if (jedisCluster == null) {
+			synchronized (JedisCluster.class) {
+				if (jedisCluster == null) {
+					JedisPoolConfig poolConfig = new JedisPoolConfig();
+					poolConfig.setMaxTotal(200);
+					poolConfig.setMaxIdle(32);
+					poolConfig.setMaxWait(Duration.ofSeconds(100));
+					poolConfig.setBlockWhenExhausted(true);
+					poolConfig.setTestOnBorrow(true);
+					// 指定連接池的poolConfig，redisSentinel的IP地址，端口號。
+					HostAndPort hostAndPort = new HostAndPort("192.168.191.139", 6380); // 選擇其一節點即可
+					jedisCluster = new JedisCluster(hostAndPort, 60000, 60000, 5, "password", poolConfig);
+				}
+			}
+		}
+		return jedisCluster;
 	}
 }

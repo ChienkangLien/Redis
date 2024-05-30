@@ -30,7 +30,10 @@ public class SecKillController {
 //		boolean isSuccess = secKillService.doSecKillSafe(userId, prodId);
 		
 		// ### 通過lua腳本，解決樂觀鎖更新衝突問題(庫存遺留)
-		boolean isSuccess = secKillService.doSecKillByLua(userId, prodId);
+//		boolean isSuccess = secKillService.doSecKillByLua(userId, prodId);
+		
+		// 若有啟用cluster
+		boolean isSuccess = secKillService.doSecKillByLuaAndCluster(userId, prodId);
 		return isSuccess ? "成功" : "失敗";
 	}
 }

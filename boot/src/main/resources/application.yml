@@ -4,10 +4,14 @@ spring:
 #      host: 192.168.191.138
 #      port: 6379
       #若有啟用redis-sentinel
-      sentinel:
-        master: mymaster
+#      sentinel:
+#        master: mymaster
+#        nodes:
+#        - 192.168.191.138:26379
+      #若有啟用cluster
+      cluster:
         nodes:
-        - 192.168.191.138:26379
+        - 192.168.191.139:6380 #使用其一節點即可
       database: 0
       password: password
       timeout: 60000 #連接超時時間(ms)
